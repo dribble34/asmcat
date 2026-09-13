@@ -6,7 +6,7 @@ controls:
 P - play, follows your cursor
 F - feeds the cat
 S - kitty goes to sleep
-Right click - throws a ball
+left click - throws a ball
 Q - exits
 #
 
