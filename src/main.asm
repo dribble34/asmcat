@@ -2,12 +2,6 @@ option casemap:none
 
 includelib kernel32.lib
 
-; This program uses no high-level MASM sugar (no PROC parameter lists, no
-; LOCAL, no INVOKE): every call site sets up RCX/RDX/R8/R9 by hand and
-; reserves the 32-byte shadow space the x64 calling convention requires.
-; Internal procs follow the same convention as Win32 calls: argument N in
-; the Nth of RCX,RDX,R8,R9 (full 64-bit register for pointers/handles, the
-; 32-bit sub-register for DWORDs), return value in EAX.
 
 SCR_W           EQU 80
 HEIGHT          EQU 25
@@ -26,9 +20,6 @@ MOUSE_EVENT           EQU 2
 MOUSE_MOVED           EQU 1
 TRUE                  EQU 1
 
-; INPUT_RECORD (x64): WORD EventType @0, 2 bytes padding, 16-byte union @4.
-; KEY_EVENT_RECORD:   bKeyDown@4  uChar(AsciiChar)@14
-; MOUSE_EVENT_RECORD: dwMousePosition.X@4 .Y@6  dwButtonState@8  dwEventFlags@16
 
 EXTERN GetStdHandle:PROC
 EXTERN SetConsoleMode:PROC
@@ -72,7 +63,7 @@ catY            DWORD ?
 hasTarget       DWORD ?
 targetX         DWORD ?
 targetY         DWORD ?
-pursuing        DWORD ?   ; 0=none 1=ball 2=food 3=going to bed
+pursuing        DWORD ?
 isSleeping      DWORD ?
 
 ballActive      DWORD ?
@@ -96,7 +87,6 @@ running         DWORD ?
 
 .code
 
-; eax = clamp(ecx, edx, r8d)
 clampi PROC
     mov eax, ecx
     cmp eax, edx
@@ -110,7 +100,6 @@ clampi_ret:
     ret
 clampi ENDP
 
-; itoa_u(ecx=value, rdx=bufPtr) -> eax=length. Leaf, no calls.
 itoa_u PROC
     sub rsp, 16
     mov r10, rdx
@@ -139,7 +128,6 @@ itoa_revloop:
     ret
 itoa_u ENDP
 
-; draw_char(ecx=x, edx=y, r8d=ch, r9d=attr). Leaf.
 draw_char PROC
     cmp ecx, 0
     jl dc_exit
@@ -162,8 +150,6 @@ dc_exit:
     ret
 draw_char ENDP
 
-; draw_string(ecx=x, edx=y, r8=strPtr, r9d=attr)
-; frame: [0,32) shadow  [32]x  [36]y  [40]strPtr  [48]attr  [52]curX
 draw_string PROC
     sub rsp, 56
     mov [rsp+32], ecx
@@ -194,7 +180,6 @@ ds_done:
     ret
 draw_string ENDP
 
-; clear_screen(). Leaf.
 clear_screen PROC
     lea r10, screenBuffer
     mov eax, SCR_W*HEIGHT
@@ -208,8 +193,6 @@ clr_loop:
     ret
 clear_screen ENDP
 
-; flush_screen(). Calls WriteConsoleOutputA(hOut, &screenBuffer, bufSize, bufCoord, &writeRegion)
-; frame: [0,32) shadow  [32] 5th-arg slot  [40] writeRegion(8: L,T,R,B words)  [48] bufSize  [52] bufCoord
 flush_screen PROC
     sub rsp, 56
     mov word ptr [rsp+40], 0
@@ -231,8 +214,6 @@ flush_screen PROC
     ret
 flush_screen ENDP
 
-; draw_status(). Reads global stats, draws them.
-; frame: [0,32) shadow  [32] numbuf[12]
 draw_status PROC
     sub rsp, 56
 
@@ -298,8 +279,6 @@ ds_help:
     ret
 draw_status ENDP
 
-; render_frame()
-; frame: [0,32) shadow  [32] blinkOn  [36] y1  [40] y2
 render_frame PROC
     sub rsp, 56
     call clear_screen
@@ -399,8 +378,6 @@ rf_no_zzz:
     ret
 render_frame ENDP
 
-; set_target(ecx=x, edx=y)
-; frame: [0,32) shadow  [32] argX  [36] argY
 set_target PROC
     sub rsp, 40
     mov [rsp+32], ecx
@@ -425,8 +402,6 @@ set_target PROC
     ret
 set_target ENDP
 
-; throw_ball(ecx=x, edx=y)
-; frame: [0,32) shadow  [32] argX  [36] argY
 throw_ball PROC
     mov eax, ballActive
     test eax, eax
@@ -468,7 +443,6 @@ tb_done_noframe:
     ret
 throw_ball ENDP
 
-; do_feed(). No params; reads lastMouseX/Y globals.
 do_feed PROC
     mov eax, foodActive
     test eax, eax
@@ -511,7 +485,6 @@ df_done_noframe:
     ret
 do_feed ENDP
 
-; decay_stats(). Leaf.
 decay_stats PROC
     mov eax, hunger
     test eax, eax
@@ -528,7 +501,6 @@ ds_done:
     ret
 decay_stats ENDP
 
-; update_ball(). Leaf.
 update_ball PROC
     mov eax, ballActive
     test eax, eax
@@ -573,7 +545,6 @@ ub_done:
     ret
 update_ball ENDP
 
-; update_cat(). Leaf.
 update_cat PROC
     mov eax, hasTarget
     test eax, eax
@@ -650,7 +621,6 @@ uc_done:
     ret
 update_cat ENDP
 
-; update_state()
 update_state PROC
     sub rsp, 40
     mov eax, tickCount
@@ -675,7 +645,6 @@ us_skip_decay:
     ret
 update_state ENDP
 
-; handle_key(rcx=recPtr)
 handle_key PROC
     sub rsp, 40
     mov r10, rcx
@@ -684,21 +653,21 @@ handle_key PROC
     jz hk_done
     movzx eax, byte ptr [r10+14]
 
-    cmp eax, 71h        ; 'q'
+    cmp eax, 71h
     je hk_quit
-    cmp eax, 51h        ; 'Q'
+    cmp eax, 51h
     je hk_quit
-    cmp eax, 66h        ; 'f'
+    cmp eax, 66h
     je hk_feed
-    cmp eax, 46h        ; 'F'
+    cmp eax, 46h
     je hk_feed
-    cmp eax, 70h        ; 'p'
+    cmp eax, 70h
     je hk_play
-    cmp eax, 50h        ; 'P'
+    cmp eax, 50h
     je hk_play
-    cmp eax, 73h        ; 's'
+    cmp eax, 73h
     je hk_sleep
-    cmp eax, 53h        ; 'S'
+    cmp eax, 53h
     je hk_sleep
     jmp hk_done
 hk_quit:
@@ -719,7 +688,6 @@ hk_done:
     ret
 handle_key ENDP
 
-; toggle_sleep(). No params. Leaf.
 toggle_sleep PROC
     mov eax, isSleeping
     test eax, eax
@@ -741,19 +709,16 @@ tsl_wake:
     ret
 toggle_sleep ENDP
 
-; handle_mouse(rcx=recPtr). rcx is left untouched (only EAX/R9-R11 used as
-; scratch) until the moment we deliberately overwrite it to set up a call,
-; so [rcx+N] reads of the record stay valid throughout.
 handle_mouse PROC
     sub rsp, 40
-    movsx eax, word ptr [rcx+4]     ; X
+    movsx eax, word ptr [rcx+4]
     mov r10d, eax
-    movsx eax, word ptr [rcx+6]     ; Y
+    movsx eax, word ptr [rcx+6]
     mov r11d, eax
     mov lastMouseX, r10d
     mov lastMouseY, r11d
 
-    mov eax, dword ptr [rcx+16]     ; dwEventFlags
+    mov eax, dword ptr [rcx+16]
     mov r9d, eax
     and eax, MOUSE_MOVED
     jz hm_check_click
@@ -773,7 +738,7 @@ handle_mouse PROC
 hm_check_click:
     test r9d, r9d
     jnz hm_done
-    mov eax, dword ptr [rcx+8]       ; dwButtonState
+    mov eax, dword ptr [rcx+8]
     and eax, 1
     mov r8d, prevLeftDown
     cmp eax, r8d
@@ -792,7 +757,6 @@ hm_done:
     ret
 handle_mouse ENDP
 
-; handle_event(ecx=idx)
 handle_event PROC
     sub rsp, 40
     mov eax, ecx
@@ -815,8 +779,6 @@ he_done:
     ret
 handle_event ENDP
 
-; poll_input()
-; frame: [0,32) shadow  [32] numEvents  [36] numRead  [40] i
 poll_input PROC
     sub rsp, 56
     lea rdx, [rsp+32]
@@ -854,7 +816,6 @@ pi_done:
     ret
 poll_input ENDP
 
-; game_loop()
 game_loop PROC
     sub rsp, 40
 gl_top:
@@ -870,8 +831,6 @@ gl_top:
     ret
 game_loop ENDP
 
-; init()
-; frame: [0,32) shadow  [32] winRect(8: L,T,R,B words)  [40] curInfo(8: dwSize,bVisible dwords)
 init PROC
     sub rsp, 56
 
@@ -933,8 +892,6 @@ init PROC
     ret
 init ENDP
 
-; shutdown()
-; frame: [0,32) shadow  [32] curInfo(8: dwSize,bVisible dwords)
 shutdown PROC
     sub rsp, 40
     mov rcx, hIn
